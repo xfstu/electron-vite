@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIPC } from './ipc/register'
+import winManager from './utils/winManager'
 
 function createWindow(): void {
   // Create the browser window.
@@ -34,6 +35,7 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  winManager.setWindow('main', mainWindow)
 }
 
 // This method will be called when Electron has finished

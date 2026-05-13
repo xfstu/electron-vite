@@ -3,8 +3,17 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
-  ipc: (route: string, ...args: any[]) => {
-    ipcRenderer.invoke('ipc:call', route, ...args)
+  ipc: {
+    send: (route: string, ...args: any[]) => {
+      return ipcRenderer.invoke('ipc:call', route, ...args)
+    },
+    on(channel: string, callback: (...args: any[]) => void) {
+      const handler = (_: any, ...args: any) => callback(...args)
+      ipcRenderer.on(`auto-router-send:${channel}`, handler)
+
+      // 返回取消监听函数（很关键）
+      return () => ipcRenderer.removeListener(`auto-router-send:${channel}`, handler)
+    }
   }
 }
 

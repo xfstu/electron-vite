@@ -3,7 +3,13 @@ import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  main: {},
+  main: {
+    resolve: {
+      alias: {
+        '@main': resolve('src/main')
+      }
+    }
+  },
   preload: {},
   renderer: {
     resolve: {
