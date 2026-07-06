@@ -4,7 +4,10 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
-      ipc: (route: string, ...args: any[]) => any
+      ipc: {
+        send: (route: string, ...args: any[]) => any
+        on: (channel: string, callback: (...args: any[]) => void) => () => void
+      }
     }
   }
 }

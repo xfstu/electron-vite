@@ -1,0 +1,441 @@
+import { WebContentsView, shell, dialog, session, net, BrowserWindow } from "electron";
+import { join, dirname } from "path";
+import { clone } from "lodash";
+import fs from "fs";
+
+
+interface viewsType {
+  id: string
+  url: string
+  time: number
+  view: WebContentsView
+}
+
+class TabManager {
+  static instance = null;
+  static mainWindow: BrowserWindow;
+  static baseUrl = null;
+  views: viewsType[] = [];
+  private activeView: viewsType | BrowserWindow;
+  x = 0;
+  y = 41;
+  constructor(mainWindow?: BrowserWindow, baseUrl?: string) {
+    if (TabManager.instance) {
+      return TabManager.instance;
+    }
+    TabManager.mainWindow = mainWindow;
+    TabManager.instance = this;
+    // mainWindow.webContents.send('view-info')
+  }
+
+  listenMainWindowSize(view: WebContentsView) {
+    // 监听窗口大小变化
+    TabManager.mainWindow.on("resize", () => this.showView(view));
+    TabManager.mainWindow.on("maximize", () => this.showView(view));
+    TabManager.mainWindow.on("unmaximize", () => this.showView(view));
+  }
+
+  showView(view: WebContentsView) {
+    // const bounds = TabManager.mainWindow.getBounds(); // 获取窗口大小
+    const bounds = TabManager.mainWindow.getContentBounds();
+    view.setBounds({
+      x: this.x,
+      y: this.y,
+      width: bounds.width,
+      height: bounds.height - this.y,
+    });
+    view.setVisible(true)
+    // view.setAutoResize({ width: true, height: true });
+  }
+
+  hiddenViewe(view: WebContentsView) {
+    // view.setBounds({ x: this.x, y: this.y, width: 0, height: 0 });
+    // view.visible = false
+    view.setVisible(false)
+    // view.webContents
+  }
+
+  setMemoryStore(info) {
+    const memoryStore = new MemoryStore();
+    const view = clone(info);
+    memoryStore.set("view_" + info.id, view);
+  }
+
+  async createTab(tabInfo) {
+    const id = crypto.randomUUID();
+    for (let i = 0; i < this.views.length; i++) {
+      //隐藏所有页面
+      this.hiddenViewe(this.views[i].view);
+    }
+    let preloadPath;
+    //页面是否自带preload
+    if (tabInfo.preload) {
+      preloadPath = join(globalConfg.getResourcesPath(), tabInfo.preload);
+    } else {
+      preloadPath = join(__dirname, "../preload/index.js");
+    }
+    //创建子页面
+    const config = await init.config() as any
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: preloadPath,
+        sandbox: false,
+        webSecurity: true,
+        session: session.fromPartition(id),
+        additionalArguments: [`--darkMode=${config?.common_config?.darkMode}`],
+        nodeIntegration: false,
+      },
+    });
+    // view.webContents.forcefullyCrashRenderer()
+    view.webContents.reloadIgnoringCache();
+    const customSession = session.fromPartition(id);
+
+    customSession.protocol.handle("atom", async (request) => {
+      const url = new URL(request.url);
+      let normalized = url.host + ":" + decodeURIComponent(url.pathname);
+      normalized = normalized.split("\\").join("/");
+      try {
+        return await net.fetch(`file:///${normalized}`);
+      } catch (err) {
+        Logger.error("TabManager atom handle error => ", err);
+        return new Response("File not found", { status: 404 });
+      }
+    });
+
+    function buildHeaders(headerString: string | object) {
+      if (!headerString) return {};
+
+      if (typeof headerString === "object") {
+        return { ...headerString };
+      }
+      const headers = {};
+      headerString.split(/\r?\n/).forEach(line => {
+        const [key, ...rest] = line.split(':');
+        if (key && rest.length) {
+          headers[key.trim()] = rest.join(':').trim();
+        }
+      });
+      return headers;
+    }
+
+    function lenovoOptionsHeaders() {
+      const headers =
+        `
+      Host: pc-store.lenovomm.cn
+      Cookie: JSESSIONID=C1FED60186E3F23B8B294A2275D9F470
+      Accept: application/json, text/plain, */*
+      User-Agent: Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36&PCStore
+      X-Leas-Runtime: independent
+      H5need: 11111111
+      Productcode: 2
+      Vt: 1
+      Sec-Fetch-Site: same-site
+      Sec-Fetch-Mode: cors
+      Sec-Fetch-Dest: empty
+      Referer: https://pc.lenovomm.cn/embedded_v8_449/wpcategory
+      Accept-Encoding: gzip, deflate, br
+      Accept-Language: zh-CN,zh;q=0.9
+      Connection: keep-alive
+      `
+      return headers
+    }
+
+    function restoreHeaders(original: Record<string, string>) {
+      const headers = { ...original };
+      const map = {
+        "xf-user-agent": "User-Agent",
+        "xf-referer": "Referer",
+        "xf-origin": "Origin",
+        "xf-host": "Host",
+        "xf-cookie": "Cookie"
+      };
+      for (const [key, value] of Object.entries(headers)) {
+        const lower = key.toLowerCase();
+        if (map[lower]) {
+          const standard = map[lower];
+          // 恢复为标准头
+          headers[standard] = value;
+          // 删除 Xf- 前缀的头
+          delete headers[key];
+        }
+      }
+      return headers;
+    }
+    // 拦截并修改所有请求的 User-Agent
+    customSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+      delete details.requestHeaders["Referer"];
+      const headers = restoreHeaders(details.requestHeaders);
+      details.requestHeaders = headers;
+      //联想壁纸，伪装应用商店的请求
+      if (details.resourceType === "image" && details.url.indexOf('lenovomm') != -1) {
+        const headers = {
+          "Host": "imgs6.lenovomm.cn",
+          "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36&PCStore",
+          "X-Leas-Runtime": "independent",
+          "Sec-Fetch-Site": "same-site",
+          "Sec-Fetch-Mode": "no-cors",
+          "Sec-Fetch-Dest": "image",
+          "Referer": "https://pc.lenovomm.cn/embedded_v8_449/wpcategory",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Accept-Language": "zh-CN,zh;q=0.9"
+        }
+        details.requestHeaders = headers
+      }
+      if (details.method === 'OPTIONS' && details.url.indexOf('lenovomm') != -1) {
+        const headers = buildHeaders(lenovoOptionsHeaders())
+        details.requestHeaders = headers
+      }
+      // console.log(details.requestHeaders)
+      callback({ requestHeaders: details.requestHeaders });
+    });
+
+    customSession.webRequest.onHeadersReceived((details, callback) => {
+      if (details.url.indexOf('lenovomm') != -1) {
+        callback({
+          statusLine: "HTTP/1.1 200 OK",
+          responseHeaders: {
+            ...details.responseHeaders,
+            "Access-Control-Allow-Origin": ["*"],
+            "Access-Control-Allow-Headers": ["*"],
+            "Access-Control-Allow-Methods": ["GET, POST, PUT, DELETE, OPTIONS"],
+          },
+        });
+      } else {
+        callback({})
+      }
+
+    });
+
+
+    view.webContents.on("will-navigate", (event, url) => {
+      event.preventDefault();
+      console.log(url)
+      if (url.startsWith("http")) {
+        event.preventDefault();
+        shell.openExternal(url);
+      } else {
+        const Url = new URL(url);
+        const FilePath = Url.host + ":" + decodeURIComponent(Url.pathname);
+        dialog
+          .showSaveDialog({
+            title: "保存文件",
+            defaultPath: FilePath,
+          })
+          .then((result) => {
+            if (result.canceled || !result.filePath) return;
+            const destPath = result.filePath;
+            const destDir = dirname(destPath);
+            // 创建目标目录
+            if (!fs.existsSync(destDir)) {
+              fs.mkdirSync(destDir, { recursive: true });
+            }
+            // 检查源文件是否存在
+            if (!fs.existsSync(FilePath)) {
+              dialog.showMessageBox({
+                type: "error",
+                title: "错误提示",
+                message: "文件不存在",
+              });
+              return;
+            }
+            // 复制文件
+            try {
+              fs.copyFileSync(FilePath, destPath);
+            } catch (err) {
+              dialog.showMessageBox({
+                type: "error",
+                title: "错误提示",
+                message: "复制失败",
+              });
+            }
+          });
+      }
+    });
+    let baseUrl;
+    if (process.env["ELECTRON_RENDERER_URL"]) {
+      baseUrl = process.env["ELECTRON_RENDERER_URL"];
+    } else {
+      baseUrl = join(__dirname, "../renderer/index.html");
+    }
+    Logger.info("baseUrl2 => " + baseUrl);
+    let loadURL;
+    //如果直接传入一个html页面，则直接加载
+    if (tabInfo.url.indexOf(".html") !== -1) {
+      loadURL = join(globalConfg.getResourcesPath(), tabInfo.url);
+    } else if (tabInfo.url.indexOf("http") !== -1) {
+      loadURL = tabInfo.url;
+    } else {
+      //否则使用主进程html，并拼接vue router参数
+      loadURL = baseUrl + "#" + tabInfo.url;
+    }
+    //加载页面
+    view.webContents.loadURL(loadURL);
+
+    // view.webContents.loadURL(globalConfg.getResourcesPath() + '/index.html');
+    //监听窗口变化，跟随父窗口变化
+    this.listenMainWindowSize(view);
+
+    const viewInfo = {
+      id,
+      ...tabInfo,
+      view: view,
+    };
+    this.views.push(viewInfo);
+    this.activeView = viewInfo;
+    this.setMemoryStore(viewInfo);
+    return new Promise((resolve, reject) => {
+      view.webContents.on("dom-ready", () => {
+        TabManager.mainWindow.contentView.addChildView(view);
+        // TabManager.mainWindow.setBrowserView(view)
+        const cloneView = clone(viewInfo);
+        const sotre = new MemoryStore()
+        delete cloneView.view;
+        view.webContents.send("view-info", { ...AppInfo, ...cloneView, config: sotre.get('config') });
+        // view.webContents.send('app-info', { ...AppInfo, ...cloneView, config: sotre.get('config') })
+
+        //页面加载完成，显示页面
+        this.showView(view);
+        if (tabInfo.dev || globalConfg.isDev()) {
+          //如果当前页面需要开启调试
+          view?.webContents?.openDevTools();
+        }
+        // view.webContents.executeJavaScript(`
+        //   localStorage.setItem('appId', '${id}');
+        // `);
+        const views = this.views;
+        //Promise完成
+        resolve({ status: true, data: JSON.stringify({ viewInfo, views }) });
+      });
+    });
+  }
+
+  findView(view, views) {
+    for (let i = 0; i < views.length; i++) {
+      if (views[i].url == view.url && views[i].time == view.time) {
+        return views[i];
+      }
+    }
+    return null;
+  }
+
+  findViewById(id) {
+    const views = this.views;
+    for (let i = 0; i < views.length; i++) {
+      if (views[i].id == id) {
+        return views[i];
+      }
+    }
+    return null;
+  }
+
+  changeTab(tabInfo: viewsType) {
+
+    const views = this.views;
+    for (let i = 0; i < views.length; i++) {
+      // views[i].view.setBounds({ x: 0, y: 70, width: 0, height: 0 });
+      this.hiddenViewe(views[i].view);
+      if (tabInfo) {
+        if (views[i].url == tabInfo.url && views[i].time == tabInfo.time) {
+          // views[i].view.setBounds({ x: 0, y: 70, width: 950, height: 650 });
+          this.showView(views[i].view);
+          this.activeView = views[i];
+        }
+      } else {
+        this.activeView = TabManager.mainWindow
+      }
+    }
+  }
+
+  async canCloseTab(view: WebContentsView) {
+    const wc = view.webContents
+
+    // 在渲染层执行测试
+    const result = await wc.executeJavaScript(`
+    (() => {
+      let prevented = false
+      const e = new Event('beforeunload', { cancelable: true })
+      const original = e.preventDefault.bind(e)
+      e.preventDefault = () => { prevented = true; original() }
+
+      window.dispatchEvent(e)
+      return prevented
+    })()
+  `).catch(() => false)
+    return !result // true=可关闭, false=阻止关闭
+  }
+
+  async closeTab(view: viewsType) {
+    const views = this.views;
+    for (let i = 0; i < views.length; i++) {
+      if (views[i].url == view.url && views[i].time == view.time) {
+        const ok = await this.canCloseTab(views[i].view);
+        // console.log(ok);
+        if (!ok) {
+          /*  const choice = dialog.showMessageBoxSync({
+             type: 'warning',
+             buttons: ['仍然关闭', '取消'],
+             defaultId: 1,
+             cancelId: 1,
+             message: '此标签页页面有 beforeunload 监听，确定要强制关闭？'
+           }) 
+           if (choice !== 0) {
+             return false
+           }*/
+          return false
+        }
+        views[i].view.webContents.close();
+        TabManager.mainWindow.contentView.removeChildView(views[i].view);
+        // views[i].view.webContents.destroy();
+        views.splice(i, 1);
+        return true
+      }
+    }
+    return false
+  }
+
+  closeTabAll() {
+    for (let i = 0; i < this.views.length; i++) {
+      TabManager.mainWindow.contentView.removeChildView(this.views[i].view);
+      // this.views[i].view.webContents.destroy();
+      this.views.splice(i, 1);
+    }
+  }
+
+  hiddenTab(view: viewsType) {
+    if (!view) {
+      for (let i = 0; i < this.views.length; i++) {
+        // this.views[i].view.setBounds({ x: 0, y: 70, width: 0, height: 0 });
+        this.hiddenViewe(this.views[i].view);
+      }
+      return;
+    }
+    const views = this.views;
+    for (let i = 0; i < views.length; i++) {
+      if (views[i].url == view.url && views[i].time == view.time) {
+        // views[i].view.setBounds({ x: 0, y: 70, width: 0, height: 0 });
+        this.hiddenViewe(views[i].view);
+      }
+    }
+  }
+
+  getTabs() {
+    return this.views;
+  }
+
+  getActiveView() {
+    return this.activeView;
+  }
+
+  getMainWindow() {
+    return TabManager.mainWindow;
+  }
+
+  getView(viewId) {
+    return viewId ? this.views : this.views[viewId];
+  }
+}
+
+// module.exports = TabManager;
+export default TabManager;

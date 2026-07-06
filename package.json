@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",
+  "packageManager": "pnpm@10.34.4",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -12,7 +13,7 @@
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
-    "dev": "electron-vite dev",
+    "dev": "chcp 65001 && electron-vite dev --watch",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
@@ -23,7 +24,10 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "micromatch": "^4.0.8"
+    "better-sqlite3-multiple-ciphers": "^12.11.1",
+    "dayjs": "^1.11.21",
+    "micromatch": "^4.0.8",
+    "sql-bricks": "^3.0.1"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
@@ -33,13 +37,18 @@
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
+    "element-plus": "^2.14.2",
+    "pinia": "^3.0.4",
+    "source-map-support": "^0.5.21",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
-    "vue": "^3.5.25",
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0",
     "vue-tsc": "^3.1.6"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "better-sqlite3-multiple-ciphers",
       "electron",
       "electron-winstaller",
       "esbuild"
