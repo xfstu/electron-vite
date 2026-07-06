@@ -1,5 +1,13 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
+interface ipcResponse<T> {
+  ok: boolean
+  data: T
+  msg: string
+  total?: number
+}
+type ipcRoute = [
+]
 declare global {
   interface Window {
     electron: ElectronAPI

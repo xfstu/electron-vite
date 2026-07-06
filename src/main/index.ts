@@ -43,6 +43,7 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  winManager.setWindow('main', mainWindow)
 }
 
 // This method will be called when Electron has finished
